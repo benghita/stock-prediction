@@ -4,65 +4,72 @@ import matplotlib.pyplot as plt
 import pandas_datareader as data
 from keras.models import load_model
 import streamlit as st
-import datetime
+from datetime import datetime, timedelta, date
+from sklearn.preprocessing import MinMaxScaler
 
-df = []
+stock_data = []
+#Stock input
 st.title('Stock Prediction')
 code = st.text_input('Enter Stock-Ticker:')
 start = st.date_input('Start date')
 end = st.date_input('End date')
 
+#Check stock code
 try : 
-    df = data.DataReader(code,'yahoo',start,end)
+    #feach data
+    stock_data = data.DataReader(code,'yahoo',start,end)
 except :
     st.markdown('_Enter stock ticker !._')
 
+#Check start date
 if start >= end :
     st.markdown('_Start date incorrect_')
 else : 
-    end_date = end.strftime('%m/%d/%Y')
-    start_date = start.strftime('%m/%d/%Y')
+    end_date = end.strftime('%d/%m/%Y')
+    start_date = start.strftime('%d/%m/%Y')
+
+#data description
     st.header('Data from '+start_date+' to '+end_date)
-    st.write(df.describe())
+    st.write(stock_data.describe())
+
+#plot closing price for the selected period
     st.subheader('Closing Price vs Time chart')
     figure = plt.figure(figsize=(12,6))
-    plt.plot(df.Close)
+    plt.plot(stock_data.Close)
     st.pyplot(figure)
-                    ##
-    data_training = pd.DataFrame(df['Close'][0:int(len(df)*0.7)])
-    data_test = pd.DataFrame(df['Close'][int(len(df)*0.7):len(df)])
-
-    from sklearn.preprocessing import MinMaxScaler
+    
+#create DataFrame
+    s_date = start - timedelta(days=100)
+    prediction_data = data.DataReader(code,'yahoo',s_date,end)
+    df = pd.DataFrame(prediction_data['Close'])
+    max_min = df['Close'].max() - df['Close'].min()
     scaler = MinMaxScaler(feature_range=(0,1))
 
-    data_training_array = scaler.fit_transform(data_training)
-            #data_test_array = scaler.fit_transform(data_test)
+#load LSTM model
+    model = load_model('keras_model.h5',compile=False)
 
-    model = load_model('keras_model.h5')
-
-    past_100_days = data_training.tail(100)
-    final_df = past_100_days.append(data_test , ignore_index=True)
-    input_data = scaler.fit_transform(final_df)
-    x_test = []
-    y_test = []
+    input_data = scaler.fit_transform(df)
+    x = []
+    y = []
 
     for i in range(100 , input_data.shape[0]):
-        x_test.append(input_data[i-100:i])
-        y_test.append(input_data[i,0])
+        x.append(input_data[i-100:i])
+        y.append(input_data[i,0])
 
-    x_test , y_test = np.array(x_test) , np.array(y_test)
+    x , y = np.array(x) , np.array(y)
+    y_predicted = model.predict(x)
 
-    y_predicted = model.predict(x_test)
-
-    st.subheader('prediction')
+#Plot predicted price and actual price chart 
+    st.subheader('Actual Price / Predicted Price Vs Time')
     figure2 = plt.figure(figsize=(12,6))
-    plt.plot(y_test,'b',label='Original pricee')
+    plt.plot(y,'b',label='Original pricee')
     plt.plot(y_predicted,'r',label='Predicted price')
     plt.xlabel('Time')
     plt.ylabel('Price')
     plt.legend(["Actual Price", "Predicted Price"])
     st.pyplot(figure2)
 
+#forcast days input
     num_days = st.selectbox('Predict for : ', ['7 days','14 days','30 days'])
     if num_days == '7 days':
         days = 7
@@ -71,7 +78,8 @@ else :
     else : 
         days = 30
 
-    forecast_data = data.DataReader(code,'yahoo',datetime.date.today()-datetime.timedelta(days=200),datetime.date.today())
+#generate new dataFrame
+    forecast_data = data.DataReader(code,'yahoo',date.today()-timedelta(days=200),date.today())
     forecast_training = pd.DataFrame(forecast_data['Close'][len(forecast_data)-100:len(forecast_data)])
     input_forecast = scaler.fit_transform(forecast_training)
     y_forecast = []
@@ -86,8 +94,11 @@ else :
         x_forecast = np.delete(x_forecast , 0 ,axis=0)  
         x_forecast = scaler.fit_transform(pd.DataFrame(x_forecast))
         input_forecast = x_forecast
+    
+    new_scaler = MinMaxScaler(feature_range=(df['Close'].min(),df['Close'].max()))
+    y_forecast = np.asarray(y_forecast)*max_min + df['Close'].min()
 
-
+#plot forcasted price chart
     st.subheader('Forecast')
     figure3 = plt.figure(figsize=(12,6))
     plt.plot(y_forecast,'r',label='Predicted price')
